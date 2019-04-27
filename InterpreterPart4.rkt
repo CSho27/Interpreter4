@@ -339,14 +339,20 @@
 ;------------------------
 
 (define interpret_classes
-  (lambda (parse_tree closures)
+  (lambda (parse_tree top-level-env)
     (cond
-      [(null? parse_tree) closures]
+      [(null? parse_tree) top-level-env]
       [(and (eq? (first_class parse_tree) 'class) (null? (parent parse_tree)))
-       (interpret_classes (remaining_tree parse_tree) (cons (create_class_closure '() (interpret_class (class_body parse_tree) (newenvironment))) closures))]
+       (interpret_classes (remaining_tree parse_tree)
+                          (define_class (class_name parse_tree) (create_class_closure '() (interpret_class (class_body parse_tree) (newenvironment))) top-level-env))]
       [(eq? (first_class parse_tree) 'class)
-       (interpret_classes (remaining_tree parse_tree) (cons (create_class_closure (parent_class parse_tree) (interpret_class (class_body parse_tree) (newenvironment))) closures))]
+       (interpret_classes (remaining_tree parse_tree)
+                          (define_class (class_name parse_tree) (create_class_closure (parent_class parse_tree) (interpret_class (class_body parse_tree) (newenvironment))) top-level-env))]
       [else (myerror "Can only parse class definitions at global level")])))
+
+(define define_class
+  (lambda (class_name class_closure top-level-env)
+    (list (cons (cons class_name (caar top-level-env)) (list (cons class_closure (cadar top-level-env)))))))
 
 (define first_class caar)
 (define class_name cadar)
