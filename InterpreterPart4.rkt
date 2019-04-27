@@ -3,7 +3,7 @@
 ;(require "simpleParser.rkt")
 ; (load "simpleParser.scm")
 
-(require "functionParser.rkt")
+(require "classParser.rkt")
 
 ; An interpreter for the simple language using tail recursion for the M_state functions and does not handle side effects.
 
@@ -389,6 +389,15 @@
 (define func_params cadr)
 (define func_body caddr)
 
+;; create_class_closure creates a class tuple of the format (parent (list of instance field names) (list of method names) (list of method closures))
+(define create_class_closure
+  (lambda (parent instances method_names method_closures)
+    (cons parent (cons instances (cons method_names (list method_closures))))))
+
+;; create_instance_closure creates a tuple of the format (class (variable names) (variable values))
+(define create_instance_closure
+  (lambda (class field_vars field_values)
+    (cons class (cons field_vars (list field_values)))))
 
 ; create a new empty environment
 (define newenvironment
