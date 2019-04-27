@@ -20,9 +20,11 @@
 
 ;Runs the main function in the statement provided by the parser
 (define interpret
-  (lambda (filename)
+  (lambda (filename class)
     (scheme->language
-     (func_run 'main '() (interpret_classes (parser filename) (newenvironment)) (lambda (v env) v)))))
+     (func_run 'main '() (class-body (lookup (string->symbol class) (interpret_classes (parser filename) (newenvironment)))) (lambda (v env) v)))))
+
+(define class-body cadr)
 
 ;Executes a function given its name and paramaters
 (define func_run
@@ -358,7 +360,7 @@
 
 (define define_class
   (lambda (class_name class_closure top-level-env)
-    (list (cons (cons class_name (caar top-level-env)) (list (cons (box class_closure) (cadar top-level-env)))))))
+    (insert class_name class_closure top-level-env)))
 
 (define first_class caar)
 (define class_name cadar)
@@ -427,6 +429,11 @@
 (define create_instance_closure
   (lambda (class field_vars field_values)
     (cons class (cons field_vars (list field_values)))))
+
+;; creates a new top-level environment
+(define new-top-level-env
+  (lambda ()
+    (list (newenvironment))))
 
 ; create a new empty environment
 (define newenvironment
