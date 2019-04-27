@@ -358,7 +358,7 @@
 
 (define define_class
   (lambda (class_name class_closure top-level-env)
-    (list (cons (cons class_name (caar top-level-env)) (list (cons (box class_closure) (cadar top-level-env)))))))
+    (insert class_name class_closure top-level-env)))
 
 (define first_class caar)
 (define class_name cadar)
