@@ -3,7 +3,7 @@
 ;(require "simpleParser.rkt")
 ; (load "simpleParser.scm")
 
-(require "classParser.rkt")
+(require "functionParser.rkt")
 
 ; An interpreter for the simple language using tail recursion for the M_state functions and does not handle side effects.
 
@@ -259,6 +259,7 @@
       [(eq? expr 'false)                 (cps-return #f)] 
       [(not (pair? expr))                (cps-return (lookup-variable expr environment))]
       [(eq? (operator expr) 'funcall)    (cps-return (func_run (funcall_name expr) (mvalue-params (funcall_params expr) environment cps-return throw) (func-frame (funcall_name expr) environment) throw))]
+      ;[(eq? (operator expr) 'new)        (cps-return () ] ;when a return new __ is called
       [(eq? (operator expr) '+)          (mvalue (operand1 expr) environment (lambda (v1) (mvalue (operand2 expr) environment (lambda (v2) (cps-return (+ v1 v2))) throw)) throw)]
       [(and (eq? (operator expr) '-)     (null? (cddr expr))) (mvalue 0 environment (lambda (v1) (mvalue (operand1 expr) environment (lambda (v2) (cps-return (- v1 v2))) throw)) throw)]
       [(eq? (operator expr) '-)          (mvalue (operand1 expr) environment (lambda (v1) (mvalue (operand2 expr) environment (lambda (v2) (cps-return (- v1 v2))) throw)) throw)]
@@ -399,6 +400,49 @@
   (lambda (class field_vars field_values)
     (cons class (cons field_vars (list field_values)))))
 
+;; create a new instance of a class and return the original closure for it
+(define initialize_instance
+  (lambda (name environment)
+    (create_instance_closure name  (field_vars name (get_classes environment)) (field_vals name (get_classes environment))) ))
+
+(define field_vars
+  (lambda (name classes)
+    (get_func_body (lookup name (cadr (lookup name classes)))) ))
+
+(define field_vals
+  (lambda (name classes)
+    1))
+
+(define test_f
+  (lambda (filename)
+    (get_classes (parser (filename)))))
+
+;Returns the variables and functions declared within a class
+(define get_class_closure
+  (lambda (name classes)
+    (lookup-in-frame name classes)))
+
+;Returns the instance of the left side of a dot expression
+(define handle_left_of_dot
+  (lambda (expr environment)
+    (if (symbol? (cadr expr))
+        (lookup (cadr expr) environment);if it is an existing instance look it up in the environment
+        (initialize_instance (dot_func_name expr) environment) ;if it is a new instance return the new instance
+  )))
+
+(define dot_func_name cadadr) ;returns the function name when creating a new instance
+
+(define func_call?
+  (lambda (method)
+    (if (eq? (cdddr method) '())
+        #f
+        #t)))
+
+(define get_class_type
+  (lambda (instance)
+    (car instance)))
+
+;;STATE MANIPULATION FUNCTIONS
 ; create a new empty environment
 (define newenvironment
   (lambda ()
@@ -426,6 +470,13 @@
       ((null? environment) (myerror "error: undefined variable" var))
       ((exists-in-list? var (variables (topframe environment))) environment)
       (else (func-frame var (cdr environment))))))
+
+; returns the classes defined in the program
+(define get_classes
+  (lambda (env)
+    (if (eq? (cdr env) '())
+        (car env)
+        (get_classes (cdr env)))))
     
     
 
