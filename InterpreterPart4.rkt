@@ -3,7 +3,7 @@
 ;(require "simpleParser.rkt")
 ; (load "simpleParser.scm")
 
-(require "functionParser.rkt")
+(require "classParser.rkt")
 
 ; An interpreter for the simple language using tail recursion for the M_state functions and does not handle side effects.
 
@@ -88,26 +88,26 @@
 
 ; interprets a list of statements.  The state/environment from each statement is used for the next ones.
 (define interpret-statement-list
-  (lambda (statement-list environment return break continue throw next)
+  (lambda (statement-list environment return break continue throw next cur_type)
     (if (null? statement-list)
         (next environment)
-        (interpret-statement (car statement-list) environment return break continue throw (lambda (env) (interpret-statement-list (cdr statement-list) env return break continue throw next))))))
+        (interpret-statement (car statement-list) environment return break continue throw (lambda (env) (interpret-statement-list (cdr statement-list) env return break continue throw next cur_type)) cur_type))))
 
 
 ;; helper for finding return statement
 (define first-statement caar)
 ;; returns environment on return rather than value
 (define interpret-statement-list-env
-  (lambda (statement-list environment return break continue throw next)
+  (lambda (statement-list environment return break continue throw next cur_type)
     (cond
       [(null? statement-list)                            (next environment)]
       [(eq? (first-statement statement-list) 'return)    (next environment)]
-      [else (interpret-statement (car statement-list) environment return break continue throw (lambda (env) (interpret-statement-list (cdr statement-list) env return break continue throw next)))])))
+      [else (interpret-statement (car statement-list) environment return break continue throw (lambda (env) (interpret-statement-list (cdr statement-list) env return break continue throw next cur_type)) cur_type)])))
         
 
 ; interpret a statement in the environment with continuations for return, break, continue, throw, and "next statement"
 (define interpret-statement
-  (lambda (statement environment return break continue throw next)
+  (lambda (statement environment return break continue throw next cur_type)
     (cond
       ((eq? 'return (statement-type statement)) (interpret-return statement environment return throw))
       ((eq? 'var (statement-type statement)) (interpret-declare statement environment throw next))
@@ -431,37 +431,70 @@
   (lambda (class field_vars field_values)
     (cons class (cons field_vars (list field_values)))))
 
-;; create a new instance of a class and return the original closure for it
-(define initialize_instance
-  (lambda (name environment)
-    (create_instance_closure name  (field_vars name (get_classes environment)) (field_vals name (get_classes environment))) ))
-
-(define field_vars
-  (lambda (name classes)
-    (get_func_body (lookup name (cadr (lookup name classes)))) ))
-
-(define field_vals
-  (lambda (name classes)
-    1))
-
-(define test_f
-  (lambda (filename)
-    (get_classes (parser (filename)))))
-
-;Returns the variables and functions declared within a class
-(define get_class_closure
-  (lambda (name classes)
-    (lookup-in-frame name classes)))
-
 ;Returns the instance of the left side of a dot expression
 (define handle_left_of_dot
   (lambda (expr environment)
     (if (symbol? (cadr expr))
         (lookup (cadr expr) environment);if it is an existing instance look it up in the environment
-        (initialize_instance (dot_func_name expr) environment) ;if it is a new instance return the new instance
+        (create_instance (dot_func_name expr) environment) ;if it is a new instance return the new instance
   )))
 
+;; create a new instance of a class and return the original closure for it
+;; used when calling new X
+;; need to also initialize fields declared in parent somehow
+(define create_instance
+  (lambda (name environment)
+    (if (eq? (get_super_class name) '())
+        (initialize_instance )
+        (initialize_instance )
+
+        )))
+
+(define initialize_instance
+  (lambda (name fields value environment)
+    (create_instance_closure name (field_vars name (cons (get_classes environment) '())) (field_vals name (cons (get_classes environment) '())))))
+
+(define get_all_field_names
+  (lambda (super_classes classes)
+    (cond
+      [(null? super_classes) '()]
+      [(null? (cdr super_classes)) (caaadr (car super_classes))]
+      [(append (caaar (cdr super_classes)) (get_all_field_names (car super_classes) classes))])))
+
+;; if the given class has a super class it returns its name, otherwise returns false
+(define get_super_class
+  (lambda (name classes)
+    (car (lookup-in-frame name classes))))
+
+;; returns the field variables of a class
+(define field_vars
+  (lambda (name classes)
+    (eliminate_functions_vars (caar (cadr (lookup name classes))) (car (cadr (lookup name classes))))))
+
+;; returns the original list with the variables that correspond to function closures removed
+(define eliminate_functions_vars
+  (lambda (values environment)
+    (cond
+      [(eq? values '()) '()]
+      [(number? (lookup-in-frame (car values) environment)) (cons (car values) (eliminate_functions_vars (cdr values) environment))]
+      [(eliminate_functions_vars (cdr values) environment)])))
+
+;; returns the field values of a class
+(define field_vals
+  (lambda (name classes)
+    (eliminate_functions_vals (cadar (cadr (lookup name classes))))))
+
+;; returns the original list with the values that are function closures removed
+(define eliminate_functions_vals
+  (lambda (values)
+    (cond
+      [(eq? values '()) '()]
+      [(number? (unbox (car values))) (cons (car values) (eliminate_functions_vals (cdr values)))]
+      [(eliminate_functions_vals (cdr values))])))
+
 (define dot_func_name cadadr) ;returns the function name when creating a new instance
+
+;(define handle_right_of_dot
 
 (define func_call?
   (lambda (method)
