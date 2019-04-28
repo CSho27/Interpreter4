@@ -20,9 +20,11 @@
 
 ;Runs the main function in the statement provided by the parser
 (define interpret
-  (lambda (filename)
+  (lambda (filename class)
     (scheme->language
-     (func_run 'main '() (interpret_global (parser filename) (newenvironment)) (lambda (v env) v)))))
+     (func_run 'main '() (class-body (lookup (string->symbol class) (interpret_classes (parser filename) (newenvironment)))) (lambda (v env) v)))))
+
+(define class-body cadr)
 
 ;Executes a function given its name and paramaters
 (define func_run
@@ -339,13 +341,42 @@
 ; Environment/State Functions
 ;------------------------
 
+(define interpret_classes
+  (lambda (parse_tree top-level-env)
+    (cond
+      [(null? parse_tree) top-level-env]
+      [(and (eq? (first_class parse_tree) 'class) (null? (parent parse_tree)))
+       (interpret_classes (remaining_tree parse_tree)
+                          (define_class
+                            (class_name parse_tree)
+                            (create_class_closure '() (interpret_class (class_body parse_tree) (newenvironment)))
+                            top-level-env))]
+      [(eq? (first_class parse_tree) 'class)
+       (interpret_classes (remaining_tree parse_tree)
+                          (define_class
+                            (class_name parse_tree)
+                            (create_class_closure (lookup (parent_class parse_tree) top-level-env) (interpret_class (class_body parse_tree) (newenvironment)))
+                            top-level-env))]
+      [else (myerror "Can only parse class definitions at global level")])))
+
+(define define_class
+  (lambda (class_name class_closure top-level-env)
+    (insert class_name class_closure top-level-env)))
+
+(define first_class caar)
+(define class_name cadar)
+(define parent caddar)
+(define parent_class (lambda (statement) (cadar (cddr (car statement)))))
+(define class_body (lambda (statement) (car (cdddr (car statement)))))
+
 ;Parses the global level statements in the program
-(define interpret_global
+(define interpret_class
   (lambda (parse_tree state)
     (cond
       [(null? parse_tree) state]
-      [(eq? (first_stmt_type parse_tree) 'var) (interpret_global (remaining_tree parse_tree) (interpret-global-declare (first_stmt parse_tree) state))] ;global variable declaration
-      [(eq? (first_stmt_type parse_tree) 'function) (interpret_global (remaining_tree parse_tree) (func_define (function_declaration parse_tree) state))] ;global function declaration
+      [(eq? (first_stmt_type parse_tree) 'var) (interpret_class (remaining_tree parse_tree) (interpret-global-declare (first_stmt parse_tree) state))] ;global variable declaration
+      [(eq? (first_stmt_type parse_tree) 'function) (interpret_class (remaining_tree parse_tree) (func_define (function_declaration parse_tree) state))] ;global function declaration
+      [(eq? (first_stmt_type parse_tree) 'static-function) (interpret_class (remaining_tree parse_tree) (func_define (function_declaration parse_tree) state))]
       [else (myerror "Can only use declaration statements at a global level")]
       )))
 
@@ -392,8 +423,8 @@
 
 ;; create_class_closure creates a class tuple of the format (parent (list of instance field names) (list of method names) (list of method closures))
 (define create_class_closure
-  (lambda (parent instances method_names method_closures)
-    (cons parent (cons instances (cons method_names (list method_closures))))))
+  (lambda (parent environment)
+    (cons parent (list environment))))
 
 ;; create_instance_closure creates a tuple of the format (class (variable names) (variable values))
 (define create_instance_closure
