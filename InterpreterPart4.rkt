@@ -416,6 +416,14 @@
   (lambda (params body func_environment)
     (cons params (cons body (cons func_environment '())))))
 
+(define create_closure_non_static
+  (lambda (params body func_environment lookup)
+    (cons (cons 'this params) (cons body (cons func_environment (cons lookup '()))))))
+
+(define create_closure_static
+  (lambda (params body func_environment lookup)
+    (cons params (cons body (cons func_environment (cons lookup '()))))))
+
 (define func_name car)
 (define func_params cadr)
 (define func_body caddr)
