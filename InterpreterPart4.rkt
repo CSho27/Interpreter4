@@ -439,6 +439,103 @@
   (lambda (class field_vars field_values)
     (cons class (cons field_vars (list field_values)))))
 
+;; create a new instance of a class and return the original closure for it
+;; used when calling new X
+;; need to also initialize fields declared in parent somehow
+(define create_instance
+  (lambda (name environment)
+    (create_instance_closure name (initialize_variables name (get_classes environment)) (initialize_values name (get_classes environment)))))
+
+; initializes the correct variables for a new instance
+(define initialize_variables
+  (lambda (name classes)
+    (eliminate_duplicate_vars (eliminate_functions_vars (all_fields name classes) (all_values name classes)))))
+
+; initializes the correct values for a new instance
+(define initialize_values
+  (lambda (name classes)
+    (eliminate_duplicate_vals (eliminate_functions_vars (all_fields name classes) (all_values name classes)) (eliminate_functions_vals (all_values name classes)) )))
+
+; returns all fields of a class and its supers
+(define all_fields
+  (lambda (name classes)
+    (append (caaar (cdr (lookup name (cons classes '())))) (get_all_field_names (get_super_class name classes) classes))))
+
+; returns all values of a class and its supers
+(define all_values
+  (lambda (name classes)
+    (append (delistify (cdaar (cdr (lookup name (cons classes '()))))) (get_all_value_names (get_super_class name classes) classes))))
+
+; eliminates duplicate variables in a list
+(define eliminate_duplicate_vars
+  (lambda (vars)
+    (cond
+      [(eq? vars '()) '()]
+      [(exists-in-list? (car vars) (cdr vars)) (cons (car vars) (eliminate_duplicate_vars (eliminate (car vars) (cdr vars))))]
+      [(cons (car vars) (eliminate_duplicate_vars (cdr vars)))])))
+
+; eliminates duplicate values in a list
+(define eliminate_duplicate_vals
+  (lambda (vars vals)
+    (cond
+      [(eq? vars '()) '()]
+      [(exists-in-list? (car vars) (cdr vars)) (cons (car vals) (eliminate_duplicate_vals (eliminate (car vars) (cdr vars)) (eliminate (unbox (car vals)) (cdr vals))))]
+      [(cons (car vals) (eliminate_duplicate_vals (cdr vars) (cdr vals)))])))
+
+; eliminates all occurences of a given name in a given list
+(define eliminate
+  (lambda (val lis)
+    (cond
+      [(eq? lis '()) '()]
+      [(and (box? (car lis)) (eq? (unbox (car lis)) val)) (eliminate val (cdr lis))]
+      [(eq? (car lis) val) (eliminate val (cdr lis))]
+      [(cons (car lis) (eliminate val (cdr lis)))])))
+
+
+;; eliminate any function names that correspond to function closures
+(define eliminate_functions_vars
+  (lambda (vars vals)
+    (cond
+      [(eq? vals '()) '()]
+      [(not (number? (unbox (car vals)))) (eliminate_functions_vars (cdr vars) (cdr vals))]
+      [(cons (car vars) (eliminate_functions_vars (cdr vars) (cdr vals)))])))
+
+;; eliminate any function closures
+(define eliminate_functions_vals
+  (lambda (vals)
+    (cond
+      [(eq? vals '()) '()]
+      [(not (number? (unbox (car vals)))) (eliminate_functions_vals (cdr vals))]
+      [(cons (car vals) (eliminate_functions_vals (cdr vals)))])))
+
+; returns all of the field names of a class and its parents
+(define get_all_field_names
+  (lambda (super_classes classes)
+    (cond
+      [(null? super_classes) '()]
+      [(append (caaar (cdr super_classes)) (get_all_field_names (car super_classes) classes))])))
+
+; returns all of the values of a class and its parents
+(define get_all_value_names
+  (lambda (super_classes classes)
+    (cond
+      [(eq? super_classes '()) '()]
+      [(eq? (car super_classes) '()) (cadaar (cdr super_classes))]
+      [(append (delistify (cdaar (cdr super_classes))) (get_all_value_names (car super_classes) classes))])))
+
+;; flattens a list of nested lists by one layer
+(define delistify
+  (lambda (list)
+    (cond
+      [(null? list) '()]
+      [(append (car list) (delistify (cdr list)))])))
+
+;; if the given class has a super class it returns its name, otherwise returns false
+(define get_super_class
+  (lambda (name classes)
+    (car (lookup-in-frame name classes))))
+
+
 ;Returns the instance of the left side of a dot expression
 (define handle_left_of_dot
   (lambda (expr environment)
@@ -447,62 +544,7 @@
         (create_instance (dot_func_name expr) environment) ;if it is a new instance return the new instance
   )))
 
-;; create a new instance of a class and return the original closure for it
-;; used when calling new X
-;; need to also initialize fields declared in parent somehow
-(define create_instance
-  (lambda (name environment)
-    (if (eq? (get_super_class name) '())
-        (initialize_instance )
-        (initialize_instance )
-
-        )))
-
-(define initialize_instance
-  (lambda (name fields value environment)
-    (create_instance_closure name (field_vars name (cons (get_classes environment) '())) (field_vals name (cons (get_classes environment) '())))))
-
-(define get_all_field_names
-  (lambda (super_classes classes)
-    (cond
-      [(null? super_classes) '()]
-      [(null? (cdr super_classes)) (caaadr (car super_classes))]
-      [(append (caaar (cdr super_classes)) (get_all_field_names (car super_classes) classes))])))
-
-;; if the given class has a super class it returns its name, otherwise returns false
-(define get_super_class
-  (lambda (name classes)
-    (car (lookup-in-frame name classes))))
-
-;; returns the field variables of a class
-(define field_vars
-  (lambda (name classes)
-    (eliminate_functions_vars (caar (cadr (lookup name classes))) (car (cadr (lookup name classes))))))
-
-;; returns the original list with the variables that correspond to function closures removed
-(define eliminate_functions_vars
-  (lambda (values environment)
-    (cond
-      [(eq? values '()) '()]
-      [(number? (lookup-in-frame (car values) environment)) (cons (car values) (eliminate_functions_vars (cdr values) environment))]
-      [(eliminate_functions_vars (cdr values) environment)])))
-
-;; returns the field values of a class
-(define field_vals
-  (lambda (name classes)
-    (eliminate_functions_vals (cadar (cadr (lookup name classes))))))
-
-;; returns the original list with the values that are function closures removed
-(define eliminate_functions_vals
-  (lambda (values)
-    (cond
-      [(eq? values '()) '()]
-      [(number? (unbox (car values))) (cons (car values) (eliminate_functions_vals (cdr values)))]
-      [(eliminate_functions_vals (cdr values))])))
-
 (define dot_func_name cadadr) ;returns the function name when creating a new instance
-
-;(define handle_right_of_dot
 
 (define func_call?
   (lambda (method)
