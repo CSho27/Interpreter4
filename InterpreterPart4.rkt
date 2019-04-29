@@ -22,22 +22,29 @@
 (define interpret
   (lambda (filename class)
     (scheme->language
-     (func_run 'main '() (list (class-body (lookup (string->symbol class) (list (interpret_class_bodies (interpret_classes_next (interpret_classes (parser "test.txt") '((()())))))) ))) (lambda (v env) v) (list (interpret_class_bodies (interpret_classes_next (interpret_classes (parser "test.txt") '((()()))))))))))
+     (func_run (string->symbol class) 'main '() (list (interpret_class_bodies (interpret_classes_next (interpret_classes (parser filename) '((()())))))) (lambda (v env) v) (list (interpret_class_bodies (interpret_classes_next (interpret_classes (parser "test.txt") '((()()))))))))))
 
 (define class-body cadr)
 
+(define func_run2
+  (lambda (class_name func_name func_params state throw [classes 'null])
+    (interpret-statement-list (get_func_body class_name func_name state) (get_func_final_state class_name func_name func_params state throw) (lambda (v) v)
+                              (lambda (env) (myerror "Break used outside of loop")) (lambda (env) (myerror "Continue used outside of loop"))
+                              throw (lambda (env) env) classes
+                              )))
+
 ;Executes a function given its name and paramaters
 (define func_run
-  (lambda (func_name func_params state throw [classes 'null])
-    (interpret-statement-list (get_func_body func_name state) (get_func_final_state func_name func_params state throw) (lambda (v) v)
+  (lambda (class_name func_name func_params state throw [classes 'null])
+    (interpret-statement-list (get_func_body class_name func_name state) state (lambda (v) v)
                               (lambda (env) (myerror "Break used outside of loop")) (lambda (env) (myerror "Continue used outside of loop"))
                               throw (lambda (env) env) classes
                               )))
 
 ;; executes a function and returns its ending state
 (define func_return_env
-  (lambda (func_name func_params state)
-    (interpret-statement-list-env (get_func_body func_name state) (get_func_final_state func_name func_params state) (lambda (v) v)
+  (lambda (class_name func_name func_params state)
+    (interpret-statement-list-env (get_func_body class_name func_name state) (get_func_final_state func_name func_params state) (lambda (v) v)
                               (lambda (env) (myerror "Break used outside of loop")) (lambda (env) (myerror "Continue used outside of loop"))
                               (lambda (v env) (myerror "Uncaught exception thrown")) (lambda (env) env)
                               )))
@@ -51,8 +58,8 @@
 
 ;Returns a given functions body as stored in its closure
 (define get_func_body
-  (lambda (func_name state)
-    (func_body_in_closure (lookup func_name state))))
+  (lambda (type_name func_name state)
+    (func_body_in_closure (lookup func_name (list (class-body (lookup type_name state)))))))
 
 (define func_body_in_closure cadr)
 
@@ -81,8 +88,9 @@
 
 ;Returns a given functions final state after being invoked
 (define get_func_final_state
-  (lambda (func_name func_params state throw)
-    (assign_func_params (get_func_param_names func_name state) (get_input_values func_params state (lambda (v) v) throw) (push-frame state))))
+  (lambda (class_name func_name func_params state throw)
+    (let ((func_state (list (class-body (lookup class_name state)))))
+      (update class_name (assign_func_params (get_func_param_names func_name func_state) (get_input_values func_params func_state (lambda (v) v) throw) (push-frame func_state)) state))))
 
     
 
@@ -260,7 +268,12 @@
       [(eq? expr 'true)                  (cps-return #t)]
       [(eq? expr 'false)                 (cps-return #f)] 
       [(not (pair? expr))                (cps-return (lookup-variable expr environment))]
-      [(eq? (operator expr) 'funcall)    (cps-return (func_run (funcall_name expr) (mvalue-params (funcall_params expr) environment cps-return throw) (func-frame (funcall_name expr) environment) throw))]
+      [(eq? (operator expr) 'funcall)    (cps-return (func_run
+                                                      (funcall_type expr environment)
+                                                      (funcall_name expr)
+                                                      (mvalue-params (funcall_params expr) environment cps-return throw)
+                                                      (func-environment (funcall_type expr environment) (funcall_name expr) environment)
+                                                      throw))]
       [(eq? (operator expr) 'new)        (create_instance (cadr expr) classes)]
       [(eq? (operator expr) 'instance)    expr]
       [(eq? (operator expr) '+)          (mvalue (operand1 expr) environment (lambda (v1) (mvalue (operand2 expr) environment (lambda (v2) (cps-return (+ v1 v2))) throw)) throw)]
@@ -304,7 +317,24 @@
 (define operand1 cadr)
 (define operand2 caddr)
 (define operand3 cadddr)
-(define funcall_name cadr)
+(define instance_type cadr)
+(define funcall_class
+  (lambda (funcall)
+    (cond
+      [(list? (cadr funcall)) (cadadr funcall)]
+      [else (cadr funcall)])))
+
+(define funcall_type
+  (lambda (funcall environment)
+    (let ((class (funcall_class funcall)))
+      (instance_type (lookup class environment)))))
+      
+(define funcall_name
+  (lambda (funcall)
+    (cond
+      [(list? (cadr funcall)) (caddr (cadr funcall))]
+      [else (cadr funcall)])))
+
 (define funcall_params cddr)
 
 (define exists-operand2?
@@ -703,13 +733,20 @@
   (lambda (environment)
     (cdr environment)))
 
+;; func_environment
+(define func-environment
+  (lambda (class_name var environment)
+    (let ((new_frame (func-frame class_name var (list (class-body (lookup class_name environment))))))
+      (update class_name new_frame environment))))
+
+
 ;; func-frame removes everything not in scope for its frame
 (define func-frame
-  (lambda (var environment)
-    (cond
-      ((null? environment) (myerror "error: undefined variable" var))
-      ((exists-in-list? var (variables (topframe environment))) environment)
-      (else (func-frame var (cdr environment))))))
+  (lambda (class_name var environment)
+      (cond
+        ((null? environment) (myerror "error: undefined variable" var))
+        ((exists-in-list? var (variables (topframe environment))) environment)
+        (else (func-frame class_name var (cdr environment))))))
 
 ; returns the classes defined in the program
 (define get_classes
