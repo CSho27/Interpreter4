@@ -26,17 +26,10 @@
 
 (define class-body cadr)
 
-(define func_run2
-  (lambda (class_name func_name func_params state throw [classes 'null])
-    (interpret-statement-list (get_func_body class_name func_name state) (get_func_final_state class_name func_name func_params state throw) (lambda (v) v)
-                              (lambda (env) (myerror "Break used outside of loop")) (lambda (env) (myerror "Continue used outside of loop"))
-                              throw (lambda (env) env) classes
-                              )))
-
 ;Executes a function given its name and paramaters
 (define func_run
   (lambda (class_name func_name func_params state throw [classes 'null])
-    (interpret-statement-list (get_func_body class_name func_name state) state (lambda (v) v)
+    (interpret-statement-list (get_func_body class_name func_name state) (get_func_final_state class_name func_name func_params state throw) (lambda (v) v)
                               (lambda (env) (myerror "Break used outside of loop")) (lambda (env) (myerror "Continue used outside of loop"))
                               throw (lambda (env) env) classes
                               )))
@@ -90,8 +83,9 @@
 (define get_func_final_state
   (lambda (class_name func_name func_params state throw)
     (let ((func_state (list (class-body (lookup class_name state)))))
-      (update class_name (assign_func_params (get_func_param_names func_name func_state) (get_input_values func_params func_state (lambda (v) v) throw) (push-frame func_state)) state))))
+      (update-func class_name func_name (assign_func_params (get_func_param_names func_name func_state) (get_input_values func_params func_state (lambda (v) v) throw) (push-frame func_state)) state))))
 
+(define class_parent car)
     
 
 ; interprets a list of statements.  The state/environment from each statement is used for the next ones.
@@ -736,7 +730,9 @@
 ;; func_environment
 (define func-environment
   (lambda (class_name var environment)
-    (let ((new_frame (func-frame class_name var (list (class-body (lookup class_name environment))))))
+    (let ((new_frame
+           (cons (class_parent (lookup class_name environment))
+                 (func-frame class_name var (list (class-body (lookup class_name environment)))))))
       (update class_name new_frame environment))))
 
 
@@ -834,6 +830,12 @@
         ;(update-existing var (box val) environment)
         (update-existing var val environment)
         (myerror "error: variable used but not defined:" var))))
+
+;; Updates a function within a class
+(define update-func
+  (lambda (class_name func_name new environment)
+    (let ((class_env (list (class-body (lookup class_name environment)))))
+        (update class_name (update func_name new class_env) environment))))
 
 ; Add a new variable/value pair to the frame.
 (define add-to-frame
