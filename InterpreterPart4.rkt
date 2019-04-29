@@ -109,7 +109,7 @@
 (define interpret-statement
   (lambda (statement environment return break continue throw next [classes 'null])
     (cond
-      ((eq? 'return (statement-type statement)) (interpret-return statement environment return throw))
+      ((eq? 'return (statement-type statement)) (interpret-return statement environment return throw classes))
       ((eq? 'var (statement-type statement)) (interpret-declare statement environment throw next classes))
       ((eq? '= (statement-type statement)) (interpret-assign statement environment throw next))
       ((eq? 'if (statement-type statement)) (interpret-if statement environment return break continue throw next))
@@ -132,8 +132,8 @@
 
 ; Calls the return continuation with the given expression value
 (define interpret-return
-  (lambda (statement environment return throw)
-    (return (eval-expression (get-expr statement) environment throw))))
+  (lambda (statement environment return throw classes)
+    (return (eval-expression (get-expr statement) environment throw classes))))
 
 ; Adds a new variable binding to the environment.  There may be an assignment with the variable
 (define interpret-declare
@@ -590,7 +590,7 @@
   (lambda (vars vals)
     (cond
       [(eq? vals '()) '()]
-      [(not (number? (unbox (car vals)))) (eliminate_functions_vars (cdr vars) (cdr vals))]
+      [(and (not (number? (unbox (car vals)))) (not (eq? (car (unbox (car vals))) 'instance))) (eliminate_functions_vars (cdr vars) (cdr vals))]
       [(cons (car vars) (eliminate_functions_vars (cdr vars) (cdr vals)))])))
 
 ;; eliminate any function closures
@@ -598,7 +598,7 @@
   (lambda (vals)
     (cond
       [(eq? vals '()) '()]
-      [(not (number? (unbox (car vals)))) (eliminate_functions_vals (cdr vals))]
+      [(and (not (number? (unbox (car vals)))) (not (eq? (car (unbox (car vals))) 'instance))) (eliminate_functions_vals (cdr vals))]
       [(cons (car vals) (eliminate_functions_vals (cdr vals)))])))
 
 (define get_all_field_names
