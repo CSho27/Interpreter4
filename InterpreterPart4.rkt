@@ -22,16 +22,16 @@
 (define interpret
   (lambda (filename class)
     (scheme->language
-     (func_run 'main '() (class-body (lookup (string->symbol class) (interpret_classes (parser filename) (newenvironment)))) (lambda (v env) v)))))
+     (func_run 'main '() (list (class-body (lookup (string->symbol class) (list (interpret_class_bodies (interpret_classes_next (interpret_classes (parser "test.txt") '((()())))))) ))) (lambda (v env) v) (list (interpret_class_bodies (interpret_classes_next (interpret_classes (parser "test.txt") '((()()))))))))))
 
 (define class-body cadr)
 
 ;Executes a function given its name and paramaters
 (define func_run
-  (lambda (func_name func_params state throw)
+  (lambda (func_name func_params state throw [classes 'null])
     (interpret-statement-list (get_func_body func_name state) (get_func_final_state func_name func_params state throw) (lambda (v) v)
                               (lambda (env) (myerror "Break used outside of loop")) (lambda (env) (myerror "Continue used outside of loop"))
-                              throw (lambda (env) env)
+                              throw (lambda (env) env) classes
                               )))
 
 ;; executes a function and returns its ending state
@@ -88,29 +88,29 @@
 
 ; interprets a list of statements.  The state/environment from each statement is used for the next ones.
 (define interpret-statement-list
-  (lambda (statement-list environment return break continue throw next cur_type)
+  (lambda (statement-list environment return break continue throw next [classes 'null])
     (if (null? statement-list)
         (next environment)
-        (interpret-statement (car statement-list) environment return break continue throw (lambda (env) (interpret-statement-list (cdr statement-list) env return break continue throw next cur_type)) cur_type))))
+        (interpret-statement (car statement-list) environment return break continue throw (lambda (env) (interpret-statement-list (cdr statement-list) env return break continue throw next classes)) classes) )))
 
 
 ;; helper for finding return statement
 (define first-statement caar)
 ;; returns environment on return rather than value
 (define interpret-statement-list-env
-  (lambda (statement-list environment return break continue throw next cur_type)
+  (lambda (statement-list environment return break continue throw next)
     (cond
       [(null? statement-list)                            (next environment)]
       [(eq? (first-statement statement-list) 'return)    (next environment)]
-      [else (interpret-statement (car statement-list) environment return break continue throw (lambda (env) (interpret-statement-list (cdr statement-list) env return break continue throw next cur_type)) cur_type)])))
+      [else (interpret-statement (car statement-list) environment return break continue throw (lambda (env) (interpret-statement-list (cdr statement-list) env return break continue throw next)))])))
         
 
 ; interpret a statement in the environment with continuations for return, break, continue, throw, and "next statement"
 (define interpret-statement
-  (lambda (statement environment return break continue throw next cur_type)
+  (lambda (statement environment return break continue throw next [classes 'null])
     (cond
       ((eq? 'return (statement-type statement)) (interpret-return statement environment return throw))
-      ((eq? 'var (statement-type statement)) (interpret-declare statement environment throw next))
+      ((eq? 'var (statement-type statement)) (interpret-declare statement environment throw next classes))
       ((eq? '= (statement-type statement)) (interpret-assign statement environment throw next))
       ((eq? 'if (statement-type statement)) (interpret-if statement environment return break continue throw next))
       ((eq? 'while (statement-type statement)) (interpret-while statement environment return throw next))
@@ -120,13 +120,13 @@
       ((eq? 'throw (statement-type statement)) (interpret-throw statement environment throw))
       ((eq? 'try (statement-type statement)) (interpret-try statement environment return break continue throw next))
       ;((eq? 'funcall (statement-type statement)) (interpret-funcall statement environment return break continue throw next))
-      ((eq? 'funcall (statement-type statement)) (next (interpret_func_run statement environment throw next)))
+      ((eq? 'funcall (statement-type statement)) (next (interpret_func_run statement environment throw next classes)))
       ((eq? 'function (statement-type statement)) (next (func_define (cdr statement) environment)))
       (else (myerror "Unknown statement:" (statement-type statement))))))
  
 (define interpret_func_run
-  (lambda (statement environment throw next)
-    (if (func_run (funcall_name statement) (funcall_params statement) environment throw)
+  (lambda (statement environment throw next [classes 'null])
+    (if (func_run (funcall_name statement) (funcall_params statement) environment throw classes)
         environment
         environment)))
 
@@ -137,9 +137,9 @@
 
 ; Adds a new variable binding to the environment.  There may be an assignment with the variable
 (define interpret-declare
-  (lambda (statement environment throw next)
+  (lambda (statement environment throw next [classes 'null])
     (if (exists-declare-value? statement)
-        (next (insert (get-declare-var statement) (eval-expression (get-declare-value statement) environment throw) environment))
+        (next (insert (get-declare-var statement) (eval-expression (get-declare-value statement) environment throw classes) environment))
         (next (insert (get-declare-var statement) 'novalue environment)))))
 
 ; Updates the environment to add a new binding for a variable
@@ -247,12 +247,12 @@
 
 ; eval-expression modified to call mvalue for simplicity
 (define eval-expression
-  (lambda (expr environment throw)
-    (mvalue expr environment cps-lambda throw)))
+  (lambda (expr environment throw [classes 'null])
+    (mvalue expr environment cps-lambda throw classes)))
 
 ;; mvalue evaluates an expression and returns a value
 (define mvalue
-  (lambda (expr environment cps-return throw)
+  (lambda (expr environment cps-return throw [classes 'null])
     (cond
       [(null? expr)                      (error "undefined expression")]
       [(number? expr)                    (cps-return expr)]
@@ -261,7 +261,8 @@
       [(eq? expr 'false)                 (cps-return #f)] 
       [(not (pair? expr))                (cps-return (lookup-variable expr environment))]
       [(eq? (operator expr) 'funcall)    (cps-return (func_run (funcall_name expr) (mvalue-params (funcall_params expr) environment cps-return throw) (func-frame (funcall_name expr) environment) throw))]
-      ;[(eq? (operator expr) 'new)        (cps-return () ] ;when a return new __ is called
+      [(eq? (operator expr) 'new)        (create_instance (cadr expr) classes)]
+      [(eq? (operator expr) 'instance)    expr]
       [(eq? (operator expr) '+)          (mvalue (operand1 expr) environment (lambda (v1) (mvalue (operand2 expr) environment (lambda (v2) (cps-return (+ v1 v2))) throw)) throw)]
       [(and (eq? (operator expr) '-)     (null? (cddr expr))) (mvalue 0 environment (lambda (v1) (mvalue (operand1 expr) environment (lambda (v2) (cps-return (- v1 v2))) throw)) throw)]
       [(eq? (operator expr) '-)          (mvalue (operand1 expr) environment (lambda (v1) (mvalue (operand2 expr) environment (lambda (v2) (cps-return (- v1 v2))) throw)) throw)]
@@ -349,15 +350,100 @@
        (interpret_classes (remaining_tree parse_tree)
                           (define_class
                             (class_name parse_tree)
-                            (create_class_closure '() (interpret_class (class_body parse_tree) (newenvironment)))
+                            (create_class_closure '() (class_body parse_tree));(interpret_class (class_body parse_tree) (newenvironment)));
                             top-level-env))]
       [(eq? (first_class parse_tree) 'class)
        (interpret_classes (remaining_tree parse_tree)
                           (define_class
                             (class_name parse_tree)
-                            (create_class_closure (lookup (parent_class parse_tree) top-level-env) (interpret_class (class_body parse_tree) (newenvironment)))
+                            (create_class_closure (parent parse_tree) (class_body parse_tree));(lookup (parent_class parse_tree) top-level-env) (interpret_class (class_body parse_tree) (newenvironment)))
                             top-level-env))]
       [else (myerror "Can only parse class definitions at global level")])))
+
+;
+(define interpret_finally
+  (lambda (filename)
+    1))
+
+;
+(define interpret_class_bodies
+  (lambda (classes)
+    (cons (caar classes) (list (interpret_class_bodies_1 (cadar classes))))))
+
+;
+(define interpret_class_bodies_1
+  (lambda (classes)
+    (cond
+      [(eq? classes '()) '()]
+      [(cons (box (cons (car (unbox (car classes))) (list (interpret_class_bodies_2 (cadr (unbox (car classes))) )))) (interpret_class_bodies_1 (cdr classes)))])))
+
+(define interpret_class_bodies_2
+  (lambda (body)
+    (car (interpret_class body '((()()))))))
+    
+
+; returns the same class structure but with (new X) initialized to the actual instance
+(define interpret_classes_next
+  (lambda (classes)
+    (list (cons (caar classes) (list (parse_classes (cadar classes) classes))))))
+
+;class struct passed in here
+(define parse_classes
+  (lambda (parse_tree classes)
+    (cond
+      [(eq? parse_tree '()) '()]
+      [(cons (box (cons (car (unbox (car parse_tree))) (list (parse_class_body (cadr (unbox (car parse_tree))) classes)))) (parse_classes (cdr parse_tree) classes))])))
+
+(define parse_class_body
+  (lambda (parse_tree classes)
+    (cond
+      [(eq? parse_tree '()) '()]
+      [(eq? (caar parse_tree) 'var) (cons (parse_class_var (car parse_tree) classes) (parse_class_body (cdr parse_tree) classes))]
+      [(cons (car parse_tree) (parse_class_body (cdr parse_tree) classes))])))
+
+(define parse_class_var
+  (lambda (parse_tree classes)
+    (if (and (list? (caddr parse_tree)) (eq? (caaddr parse_tree) 'new))
+        (append (list (car parse_tree)) (append (list (cadr parse_tree)) (list (create_instance_1 (car (cdaddr parse_tree)) classes))))
+        parse_tree)))
+
+(define create_instance_1
+  (lambda (name classes)
+    (create_instance_closure name (eliminate_duplicate_vars (parse_classes_for_fields name classes)) (eliminate_duplicate_vals_1 (parse_classes_for_fields name classes) (parse_classes_for_values name classes)))))
+
+;class struct passed in here
+(define parse_classes_for_fields
+  (lambda (name classes)
+    (cond
+      [(eq? (get_super name (car classes)) '()) (parse_class_for_fields (cadr (lookup-in-frame name (car classes))))]
+      [(append (parse_class_for_fields (cadr (lookup-in-frame name (car classes)))) (parse_classes_for_fields (cadr (get_super name (car classes))) classes))]
+      )))
+
+(define parse_class_for_fields
+  (lambda (body)
+    (cond
+      [(eq? body '()) '()]
+      [(eq? (caar body) 'var) (cons (cadar body) (parse_class_for_fields (cdr body)))]
+      [(parse_class_for_fields (cdr body))])))
+
+(define parse_classes_for_values
+  (lambda (name classes)
+    (cond
+      [(eq? (get_super name (car classes)) '()) (parse_class_for_values (cadr (lookup-in-frame name (car classes))))]
+      [(append (parse_class_for_values (cadr (lookup-in-frame name (car classes)))) (parse_classes_for_values (cadr (get_super name (car classes))) classes))]
+      )))
+
+(define parse_class_for_values
+  (lambda (body)
+    (cond
+      [(eq? body '()) '()]
+      [(eq? (caar body) 'var) (cons (caddar body) (parse_class_for_values (cdr body)))]
+      [(parse_class_for_values (cdr body))])))
+
+(define get_super
+  (lambda (name classes)
+    (car (lookup-in-frame name classes))))
+
 
 (define define_class
   (lambda (class_name class_closure top-level-env)
@@ -380,7 +466,7 @@
       [else (myerror "Can only use declaration statements at a global level")]
       )))
 
-(define first_stmt_type caar)
+(define first_stmt_type caar);(lambda (l) (car (unbox (car l)))))
 (define first_stmt car)
 (define remaining_tree cdr)
 (define function_declaration cdar)
@@ -437,7 +523,7 @@
 ;; create_instance_closure creates a tuple of the format (class (variable names) (variable values))
 (define create_instance_closure
   (lambda (class field_vars field_values)
-    (cons class (cons field_vars (list field_values)))))
+    (cons 'instance (cons class (cons field_vars (list field_values))))))
 
 ;; create a new instance of a class and return the original closure for it
 ;; used when calling new X
@@ -459,12 +545,12 @@
 ; returns all fields of a class and its supers
 (define all_fields
   (lambda (name classes)
-    (append (caaar (cdr (lookup name (cons classes '())))) (get_all_field_names (get_super_class name classes) classes))))
+    (append (caar (cdr (lookup name (cons classes '())))) (get_all_field_names (get_super_class_helper name classes) classes))))
 
 ; returns all values of a class and its supers
 (define all_values
   (lambda (name classes)
-    (append (delistify (cdaar (cdr (lookup name (cons classes '()))))) (get_all_value_names (get_super_class name classes) classes))))
+    (append (delistify1 (cadar (cdr (lookup name (cons classes '()))))) (delistify1 (get_all_value_names (get_super_class_helper name classes) classes)))))
 
 ; eliminates duplicate variables in a list
 (define eliminate_duplicate_vars
@@ -480,6 +566,13 @@
     (cond
       [(eq? vars '()) '()]
       [(exists-in-list? (car vars) (cdr vars)) (cons (car vals) (eliminate_duplicate_vals (eliminate (car vars) (cdr vars)) (eliminate (unbox (car vals)) (cdr vals))))]
+      [(cons (car vals) (eliminate_duplicate_vals (cdr vars) (cdr vals)))])))
+
+(define eliminate_duplicate_vals_1
+  (lambda (vars vals)
+    (cond
+      [(eq? vars '()) '()]
+      [(exists-in-list? (car vars) (cdr vars)) (cons (car vals) (eliminate_duplicate_vals (eliminate (car vars) (cdr vars)) (eliminate (car vals) (cdr vals))))]
       [(cons (car vals) (eliminate_duplicate_vals (cdr vars) (cdr vals)))])))
 
 ; eliminates all occurences of a given name in a given list
@@ -508,15 +601,39 @@
       [(not (number? (unbox (car vals)))) (eliminate_functions_vals (cdr vals))]
       [(cons (car vals) (eliminate_functions_vals (cdr vals)))])))
 
-; returns all of the field names of a class and its parents
 (define get_all_field_names
+  (lambda (super_class classes)
+    (cond
+      [(eq? super_class '()) '()]
+      [(eq? (get_super_class_helper super_class classes) '()) (caadr (lookup super_class (list classes)))]
+      [(append (caadr (lookup super_class (list classes))) (get_all_field_names (get_super_class_helper super_class classes) classes))]
+      )))
+
+(define get_all_value_names
+  (lambda (super_class classes)
+    (cond
+      [(eq? super_class '()) '()]
+      [(eq? (get_super_class_helper super_class classes) '()) (cadadr (lookup super_class (list classes)))]
+      [(append (cadadr (lookup super_class (list classes))) (get_all_value_names (get_super_class_helper super_class classes) classes))]
+          )))
+
+(define delistify1
+  (lambda (lis)
+    (cond
+      [(eq? lis '()) '()]
+      [(not (list? (car lis))) (cons (car lis) (delistify1 (cdr lis)))]
+      [(append (delistify1 (car lis)) (delistify1 (cdr lis)))])))
+    
+
+; returns all of the field names of a class and its parents
+(define get_all_field_names_1
   (lambda (super_classes classes)
     (cond
       [(null? super_classes) '()]
       [(append (caaar (cdr super_classes)) (get_all_field_names (car super_classes) classes))])))
 
 ; returns all of the values of a class and its parents
-(define get_all_value_names
+(define get_all_value_names_1
   (lambda (super_classes classes)
     (cond
       [(eq? super_classes '()) '()]
@@ -530,10 +647,19 @@
       [(null? list) '()]
       [(append (car list) (delistify (cdr list)))])))
 
-;; if the given class has a super class it returns its name, otherwise returns false
+; returns the class closure of the given classes parent
 (define get_super_class
   (lambda (name classes)
-    (car (lookup-in-frame name classes))))
+    (if (eq? (get_super_class_helper name classes) '())
+        '()
+        (lookup (get_super_class_helper name classes) (cons classes '())))))
+
+;; if the given class has a super class it returns its name, otherwise returns false
+(define get_super_class_helper
+  (lambda (name classes)
+    (if (eq? (car (lookup-in-frame name classes)) '())
+        '()
+        (cadar (lookup-in-frame name classes)))))
 
 
 ;Returns the instance of the left side of a dot expression
