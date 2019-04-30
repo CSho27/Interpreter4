@@ -34,6 +34,23 @@
                               throw (lambda (env) env) classes
                               )))
 
+(define func_run_parse
+  (lambda (func_call func_params state this throw [classes 'null])
+    (let ((func_closure 
+           (cond
+             [(and (list? (cadr func_call)) (list? (cadadr func_call))) (lookup (car (cddadr func_call)) (list (class-body (lookup this classes))))]
+             [(list? (cadr func_call)) (lookup (car (cddadr func_call)) (list (class-body (lookup this classes))) (car (cddadr func_call)))]
+             [else 'nothing])))
+      (if (list? (cadr func_call))
+          (interpret-statement-list (cadr func_closure) (get_func_final_state (car (cddadr func_call)) func_params state throw) (lambda (v) v)
+                              (lambda (env) (myerror "Break used outside of loop")) (lambda (env) (myerror "Continue used outside of loop"))
+                              throw (lambda (env) env) classes)
+          (interpret-statement-list (cadr func_closure) (get_func_final_state (cadr func_call) func_params state throw) (lambda (v) v)
+                              (lambda (env) (myerror "Break used outside of loop")) (lambda (env) (myerror "Continue used outside of loop"))
+                              throw (lambda (env) env) classes)
+      ))))
+    
+
 ;; executes a function and returns its ending state
 (define func_return_env
   (lambda (func_name func_params state)
@@ -260,7 +277,7 @@
       [(eq? expr 'true)                  (cps-return #t)]
       [(eq? expr 'false)                 (cps-return #f)] 
       [(not (pair? expr))                (cps-return (lookup-variable expr environment))]
-      [(eq? (operator expr) 'funcall)    (cps-return (func_run (funcall_name expr) (mvalue-params (funcall_params expr) environment cps-return throw) (func-frame (funcall_name expr) environment) throw))]
+      [(eq? (operator expr) 'funcall)    (cps-return (func_run_parse expr (mvalue-params (funcall_params expr) environment cps-return throw) (func-frame-helper expr environment classes) (mvalue-helper expr environment classes) throw classes))]
       [(eq? (operator expr) 'new)        (create_instance (cadr expr) classes)]
       [(eq? (operator expr) 'instance)    expr]
       [(eq? (operator expr) '+)          (mvalue (operand1 expr) environment (lambda (v1) (mvalue (operand2 expr) environment (lambda (v2) (cps-return (+ v1 v2))) throw)) throw)]
@@ -294,6 +311,21 @@
       [(null? params) '()]
       [else (mvalue (car params) environment (lambda (v) (cons v (mvalue-params (cdr params) environment cps-return throw))) throw)])))
 
+(define func-frame-helper
+  (lambda (expr environment classes)
+    (cond
+      [(and (list? (cadr expr)) (list? (cadadr expr))) (func-frame (car (cddadr expr)) (list (cadr (lookup (cadr (cadadr expr)) classes))))]
+      [(list? (cadr expr)) (func-frame (cadr (cdadr expr))  (list (class-body (lookup (cadr (lookup (cadadr expr) environment)) classes))))]
+      [else  (func-frame (cadr (cdadr expr))  (list (class-body (lookup (cadr (lookup (cadr expr) environment)) classes))))]
+        )))
+
+(define mvalue-helper
+  (lambda (expr environment classes)
+    (cond
+      [(and (list? (cadr expr)) (list? (cadadr expr))) (cadr (cadadr expr))]
+      [(and (list? (cadr expr)) (eq? (cadar expr) 'this) )]
+      [(list? (cadr expr)) (cadr (lookup (cadadr expr) environment))]
+        )))
 
 ;-----------------
 ; HELPER FUNCTIONS
